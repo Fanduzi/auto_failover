@@ -42,7 +42,7 @@ def get_master_status(conn):
 	cursor.close()
 
 
-
+#执行change master语句
 def change_master(conn,change_string):
 	cursor = conn.cursor()
 	cursor.execute("stop slave;")
@@ -51,13 +51,30 @@ def change_master(conn,change_string):
 	cursor.close()
 
 
-
+#修复slave错误
 def repair_slave(conn):
 	cursor = conn.cursor()
 	cursor.execute("set global sql_slave_skip_counter=1;")
 	cursor.execute("start slave sql_thread;")
 	cursor.close()	
 
+#设置read only
+def set_read_only(conn,switch):
+	cursor = conn.cursor()
+	if switch == 'on':
+		cursor.execute("set global read_only=on;")
+	elif switch == 'off':
+		cursor.execute("set global read_only=off;")
+	cursor.close()
+
+#启停 sql_thread
+def set_sql_thread(conn,switch):
+	cursor = conn.cursor()
+	if switch == 'off':
+		cursor.execute("stop slave sql_thread;")
+	elif switch == 'on':
+		cursor.execute("start slave sql_thread;")
+	cursor.close()
 
 
 if __name__ == '__main__':
@@ -66,6 +83,8 @@ if __name__ == '__main__':
 	conn39 = get_conn('10.0.1.39',3306,'root','mysql')
 	conn40 = get_conn('10.0.1.40',3306,'root','mysql')
 	conn41 = get_conn('10.0.1.41',3306,'root','mysql')
+
+	#判断 39 40 41是否都因为drop t_error_maker停止
 	while True:
 		Last_SQL_Error_39 = get_slave_statue(conn39,'show slave status;')['Last_SQL_Error']
 		Last_SQL_Error_40 = get_slave_statue(conn40,'show slave status;')['Last_SQL_Error']
@@ -74,6 +93,53 @@ if __name__ == '__main__':
 			break
 		else:
 			time.sleep(1)
+
+	#获取40 master status 以供39 41切换
+	master_status_40 = get_master_status(conn40)
+	File_40,Position_40 = master_status_40['File'],master_status_40['Position']
+
+	change_string = """
+	change master to 
+	master_host='10.0.1.40',
+	master_port=3306,
+	master_user='repl',
+	master_password='repl',
+	master_log_file='%s',
+	master_log_pos=%d;
+	""" % (File_40,Position_40)
+
+	#39 41切换到40
+	change_master(conn39,change_string)
+	change_master(conn41,change_string)
+	#修复40 slave
+	repair_slave(conn40)
+
+	conn35 = get_conn('172.16.65.35',3306,'root','mysql')
+	conn36 = get_conn('172.16.65.36',3306,'root','mysql')
+
+	#35 设置read only
+	set_read_only(conn35,switch='on')
+
+	#判断35 36 40 是否同步
+	while True:
+		res35 = get_slave_statue(conn35,'show master status;')
+		res36 = get_slave_statue(conn36,'show slave status;')
+		res40 = get_slave_statue(conn40,'show slave status;')
+		File_35,Position_35 = res35['File'],res35['Position']
+		File_36,Position_36 = res36['Relay_Master_Log_File'],res36['Exec_Master_Log_Pos']
+		File_40,Position_40 = res40['Relay_Master_Log_File'],res40['Exec_Master_Log_Pos']
+		if File_35 == File_36 == File_40 and Position_35 == Position_36 == Position_40:
+			break
+		else:
+			time.sleep(1)
+
+	#停40 sql_thread
+	set_sql_thread(conn40,switch='off')
+
+	#写接入36
+
+	#35 read_only=off
+	set_read_only(conn35,switch='off')
 
 	master_status_40 = get_master_status(conn40)
 	File_40,Position_40 = master_status_40['File'],master_status_40['Position']
@@ -88,50 +154,9 @@ if __name__ == '__main__':
 	master_log_pos=%d;
 	""" % (File_40,Position_40)
 
-	change_master(conn39,change_string)
-	change_master(conn41,change_string)
-	repair_slave(conn40)
+	change_master(conn35,change_string)
 
+	#起40 sql_thread
+	set_sql_thread(conn40,switch='on')
 
-# result = get_slave_status(host='localhost', port=3306, user='root',passwd='mysql',charset='utf8')
-
-"""
-stop slave;
-
-change master to 
-master_host='172.16.65.36',
-master_port=3306,
-master_user='repl',
-master_password='repl',
-master_log_file='mysql-bin.000042',
-master_log_pos=112269937;
-
-start slave;
-"""
-
-# conn=pymysql.connect(host='localhost', port=3306, user='root',passwd='mysql',db='performance_schema',charset='utf8')
-# cursor = conn.cursor(pymysql.cursors.DictCursor)
-# cursor.execute("show slave status;")
-# result = cursor.fetchone()
-# if result['Last_SQL_Error'] == error_message:
-
-
-# "select column_name, ORDINAL_POSITION from information_schema.columns where table_schema='%s' and table_name='%s' and IS_NULLABLE='NO';" % (db, tb_name)
-
-
-
-# def get_conn(db_host,db_port,db_user,db_password):
-#     return pymysql.connect(host=db_host, port=int(db_port), user=db_user,passwd=db_password)
-
-# conn = get_conn(localhost,3306,root,mysql)
-# cursor = conn.cursor()
-# cursor.execute("select concat_ws(',',host,port) from performance_schema.replication_connection_configuration")
-# r = cursor.fetchone()
-# print(r)
-
-
-# conn=pymysql.connect(host='localhost', port=3306, user='root',passwd='mysql',db='performance_schema',charset='utf8')
-# cursor = conn.cursor()
-# cursor.execute("select concat_ws(',',host,port) from replication_connection_configuration")
-# host,port=cursor.fetchone()[0].split(',')
 
