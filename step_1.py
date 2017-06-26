@@ -148,6 +148,8 @@ if __name__ == '__main__':
 	print(u"41切换到40成功")
 	#修复40 slave
 	print(u"修复40 slave")
+	if i > 100:
+		i = 100
 	repair_slave(conn40)
 
 	# conn35 = get_conn('172.16.65.35',3306,'root','mysql')
@@ -195,6 +197,6 @@ if __name__ == '__main__':
 	# #起40 sql_thread
 	# set_sql_thread(conn40,switch='on')
 
-	bar.cursor.restore()
-	bar.draw(value=100)
+	#bar.cursor.restore()
+	#bar.draw(value=100)
 
